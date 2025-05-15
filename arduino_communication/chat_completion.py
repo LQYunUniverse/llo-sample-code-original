@@ -9,6 +9,8 @@ import os
 from openai import OpenAI
 from dotenv import load_dotenv
 import re
+import serial
+import time
 
 if (not os.path.isfile(".env")):
 	print("API key not found!")
@@ -16,6 +18,15 @@ if (not os.path.isfile(".env")):
 
 load_dotenv()
 client = OpenAI()
+
+# Initialize serial connection
+try:
+	# Note: You may need to change this port to match your Arduino
+	ser = serial.Serial('COM3', 115200)
+except serial.SerialException as e:
+	print("Failed to open serial port. Please check if Arduino is connected and port is correct.")
+	print("Error:", str(e))
+	quit()
 
 def interpret_year(code):
     base_year = 2025
@@ -107,46 +118,90 @@ def chat_completion_with_developer(developer_prompt, user_prompt, model = "gpt-4
 	return completion.choices[0].message.content
 
 # === 主流程 ===
-user_prompt = input("Enter culture and time (e.g. 2aaa): ").strip()
-match = re.match(r"([0-4])([ad]+)", user_prompt)
-if not match:
-    print("Invalid input. Use format like '2aaa' or '1dd'")
-    quit()
+try:
+	# State variables for input collection
+	continent_input = None
+	timecode_input = ""
+	last_input_time = time.time()
+	TIMEOUT = 2.0  # 2 seconds timeout
+	
+	while True:
+		current_time = time.time()
+		
+		if ser.in_waiting > 0:
+			input_data = ser.readline().decode('utf-8').rstrip()
+			last_input_time = current_time
+			
+			# Try to parse as continent number first
+			try:
+				num = int(input_data)
+				if 0 <= num <= 4:
+					continent_input = num
+					print(f"Continent selected: {num}")
+			except ValueError:
+				# Process each character in the input for time period letters
+				for char in input_data.lower():
+					if char in ['a', 'd']:
+						timecode_input += char
+						print(f"Time period input: {timecode_input}")
+					else:
+						print(f"Ignoring invalid character: '{char}'")
+		
+		# Check for timeout if we have any input
+		if (current_time - last_input_time) >= TIMEOUT and (continent_input is not None or timecode_input):
+			# Only process if we have both inputs
+			if continent_input is not None and timecode_input:
+				user_prompt = f"{continent_input}{timecode_input}"
+				print(f"\nProcessing input to AI model: {user_prompt}")
+				
+				match = re.match(r"([0-4])([ad]+)", user_prompt)
+				if match:
+					continent_id = int(match.group(1))
+					timecode = match.group(2)
+					year = interpret_year(timecode)
+					label = get_historical_period(continent_id, year)
+					continent_name = get_continent_name(continent_id)
 
-continent_id = int(match.group(1))
-timecode = match.group(2)
-year = interpret_year(timecode)
-label = get_historical_period(continent_id, year)
-continent_name = get_continent_name(continent_id)
+					developer_prompt = f"""
+					You are a visual historian and speculative world-designer.
 
-context_string = f"Continent: {continent_name}, Year: {year}, Period: {label}"
-print(context_string)
+					A user has chosen:
+					- Continent: {continent_name}
+					- Year: {year}
+					- Period: {label}
 
-developer_prompt = f"""
-You are a visual historian and speculative world-designer.
+					Your task is to generate a **photo-realistic and cinematic image prompt** describing the space, people, clothing, and evolving cultural elements of that civilization at that specific time.
 
-A user has chosen:
-- Continent: {continent_name}
-- Year: {year}
-- Period: {label}
+					Include:
+					- Scene type: indoor, outdoor, urban, rural, or nature-based
+					- Architecture: traditional or futuristic evolution (e.g., cyberpunk Roman columns)
+					- Decorations: totems, holograms, wall art
+					- People: appearance, rituals, face paint, implants
+					- Clothing: fashion evolution across time
+					- Atmosphere: light, tone, camera style
+					- Optional: refer to related novels, shows, or visual inspirations
 
-Your task is to generate a **photo-realistic and cinematic image prompt** describing the space, people, clothing, and evolving cultural elements of that civilization at that specific time.
+					Format (one sentence only):
+					[Year] - [scene type], [visual content...]
 
-Include:
-- Scene type: indoor, outdoor, urban, rural, or nature-based
-- Architecture: traditional or futuristic evolution (e.g., cyberpunk Roman columns)
-- Decorations: totems, holograms, wall art
-- People: appearance, rituals, face paint, implants
-- Clothing: fashion evolution across time
-- Atmosphere: light, tone, camera style
-- Optional: refer to related novels, shows, or visual inspirations
+					Only return the description. Do not explain.
+					"""
 
-Format (one sentence only):
-[Year] - [scene type], [visual content...]
+					# Get completion and send it back to Arduino
+					response = chat_completion_with_developer(developer_prompt, user_prompt)
+					print(f"AI Response: {response}")
+					ser.write((response + '\n').encode('utf-8'))
+					
+					# Reset for next input
+					continent_input = None
+					timecode_input = ""
+					last_input_time = current_time
+					print("\nReady for new input")
+		
+		time.sleep(0.1)
 
-Only return the description. Do not explain.
-"""
-
-# 调用函数
-print(chat_completion_with_developer(developer_prompt, user_prompt))
+except KeyboardInterrupt:
+	ser.close()
+except serial.SerialException as e:
+	ser.close()
 
