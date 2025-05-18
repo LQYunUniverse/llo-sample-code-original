@@ -11,6 +11,9 @@ from dotenv import load_dotenv
 import re
 import serial
 import time
+import asyncio
+import websockets
+import json
 
 if (not os.path.isfile(".env")):
 	print("API key not found!")
@@ -22,11 +25,31 @@ client = OpenAI()
 # Initialize serial connection
 try:
 	# Note: You may need to change this port to match your Arduino
-	ser = serial.Serial('COM3', 115200)
+	ser = serial.Serial('COM4', 115200)
 except serial.SerialException as e:
 	print("Failed to open serial port. Please check if Arduino is connected and port is correct.")
 	print("Error:", str(e))
 	quit()
+
+# Store connected WebSocket clients
+connected_clients = set()
+
+async def register(websocket):
+	connected_clients.add(websocket)
+	try:
+		await websocket.wait_closed()
+	finally:
+		connected_clients.remove(websocket)
+
+async def broadcast(message):
+	if connected_clients:
+		await asyncio.gather(
+			*[client.send(message) for client in connected_clients]
+		)
+
+async def websocket_server():
+	async with websockets.serve(register, "localhost", 8765):
+		await asyncio.Future()  # run forever
 
 def interpret_year(code):
     base_year = 2025
@@ -118,7 +141,10 @@ def chat_completion_with_developer(developer_prompt, user_prompt, model = "gpt-4
 	return completion.choices[0].message.content
 
 # === 主流程 ===
-try:
+async def main():
+	# Start WebSocket server
+	server_task = asyncio.create_task(websocket_server())
+	
 	# State variables for input collection
 	continent_input = None
 	timecode_input = ""
@@ -130,22 +156,30 @@ try:
 		
 		if ser.in_waiting > 0:
 			input_data = ser.readline().decode('utf-8').rstrip()
+			print(f"Raw input received: '{input_data}'")
 			last_input_time = current_time
 			
-			# Try to parse as continent number first
-			try:
-				num = int(input_data)
-				if 0 <= num <= 4:
-					continent_input = num
-					print(f"Continent selected: {num}")
-			except ValueError:
-				# Process each character in the input for time period letters
-				for char in input_data.lower():
-					if char in ['a', 'd']:
-						timecode_input += char
-						print(f"Time period input: {timecode_input}")
-					else:
-						print(f"Ignoring invalid character: '{char}'")
+			# The first character is the continent number (0-4)
+			if len(input_data) > 0:
+				try:
+					num = int(input_data[0])
+					if 0 <= num <= 4:
+						continent_input = num
+						print(f"Continent selected: {num}")
+						
+						# Process the rest of the string for time period letters
+						timecode_input = input_data[1:]
+						if timecode_input:
+							print(f"Time period input: {timecode_input}")
+						
+							# Send status update immediately
+							await broadcast(json.dumps({
+								'type': 'status',
+								'continent': continent_input,
+								'timecode': timecode_input
+							}))
+				except ValueError:
+					print(f"Invalid continent number: {input_data[0]}")
 		
 		# Check for timeout if we have any input
 		if (current_time - last_input_time) >= TIMEOUT and (continent_input is not None or timecode_input):
@@ -192,16 +226,25 @@ try:
 					print(f"AI Response: {response}")
 					ser.write((response + '\n').encode('utf-8'))
 					
+					# Send response to web interface
+					await broadcast(json.dumps({
+						'type': 'response',
+						'text': response
+					}))
+					
 					# Reset for next input
 					continent_input = None
 					timecode_input = ""
 					last_input_time = current_time
 					print("\nReady for new input")
 		
-		time.sleep(0.1)
+		await asyncio.sleep(0.01)  # Reduced sleep time for more responsive updates
 
-except KeyboardInterrupt:
-	ser.close()
-except serial.SerialException as e:
-	ser.close()
+if __name__ == "__main__":
+	try:
+		asyncio.run(main())
+	except KeyboardInterrupt:
+		ser.close()
+	except serial.SerialException as e:
+		ser.close()
 

@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Blank Scope</title>
+    <style>
+      body {
+        font-family: "Arial", sans-serif;
+        margin: 0;
+        padding: 20px;
+        background-color: #f0f2f5;
+        color: #333;
+      }
+      .container {
+        max-width: 800px;
+        margin: 0 auto;
+        background-color: white;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
+      h1 {
+        text-align: center;
+        color: #1a1a1a;
+        margin-bottom: 30px;
+      }
+      .input-section,
+      .response-section {
+        margin-bottom: 30px;
+        padding: 20px;
+        background-color: #f8f9fa;
+        border-radius: 8px;
+      }
+      .input-section h2,
+      .response-section h2 {
+        color: #2c3e50;
+        margin-top: 0;
+        font-size: 1.5em;
+      }
+      #encoder-input,
+      #ai-response {
+        white-space: pre-wrap;
+        font-family: "Courier New", monospace;
+        padding: 15px;
+        background-color: #fff;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        min-height: 100px;
+        max-height: 300px;
+        overflow-y: auto;
+      }
+      .timestamp {
+        color: #666;
+        font-size: 0.8em;
+        margin-top: 5px;
+      }
+      .status-section {
+        margin-bottom: 30px;
+        padding: 20px;
+        background-color: #e8f4f8;
+        border-radius: 8px;
+        text-align: center;
+      }
+      .status-section h2 {
+        color: #2c3e50;
+        margin-top: 0;
+        font-size: 1.5em;
+      }
+      .current-status {
+        display: flex;
+        justify-content: space-around;
+        margin-top: 20px;
+      }
+      .status-item {
+        text-align: center;
+        padding: 15px;
+        background-color: white;
+        border-radius: 8px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        min-width: 200px;
+      }
+      .status-item h3 {
+        margin: 0 0 10px 0;
+        color: #666;
+        font-size: 1em;
+      }
+      .status-item p {
+        margin: 0;
+        font-size: 1.5em;
+        font-weight: bold;
+        color: #2c3e50;
+        transition: all 0.3s ease;
+      }
+      .status-item p.updating {
+        transform: scale(1.1);
+        color: #3498db;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Blank Scope</h1>
+
+      <div class="status-section">
+        <h2>Current Status</h2>
+        <div class="current-status">
+          <div class="status-item">
+            <h3>Continent</h3>
+            <p id="current-continent">-</p>
+          </div>
+          <div class="status-item">
+            <h3>Year</h3>
+            <p id="current-year">-</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="input-section">
+        <h2>Rotary Encoder Input</h2>
+        <div id="encoder-input"></div>
+      </div>
+
+      <div class="response-section">
+        <h2>AI Response</h2>
+        <div id="ai-response"></div>
+      </div>
+    </div>
+
+    <script>
+      const continentNames = {
+        0: "Asia",
+        1: "Africa",
+        2: "Europe",
+        3: "Americas",
+        4: "Oceania",
+      };
+
+      function calculateYear(timecode) {
+        const baseYear = 2025;
+        const aCount = (timecode.match(/a/g) || []).length;
+        const dCount = (timecode.match(/d/g) || []).length;
+        return baseYear - aCount * 100 + dCount * 100;
+      }
+
+      // Function to add a new entry with timestamp
+      function addEntry(elementId, text) {
+        const element = document.getElementById(elementId);
+        const timestamp = new Date().toLocaleTimeString();
+        const entry = document.createElement("div");
+        entry.innerHTML = `${text}<div class="timestamp">${timestamp}</div>`;
+        element.insertBefore(entry, element.firstChild);
+      }
+
+      // Function to update status with animation
+      function updateStatus(continent, timecode) {
+        const continentElement = document.getElementById("current-continent");
+        const yearElement = document.getElementById("current-year");
+
+        // Add transition class
+        continentElement.classList.add("updating");
+        yearElement.classList.add("updating");
+
+        // Update values
+        const continentName = continentNames[continent] || "-";
+        const year = timecode ? calculateYear(timecode) : "-";
+
+        continentElement.textContent = continentName;
+        yearElement.textContent = year;
+
+        // Remove transition class after animation
+        setTimeout(() => {
+          continentElement.classList.remove("updating");
+          yearElement.classList.remove("updating");
+        }, 300);
+      }
+
+      // WebSocket connection
+      const ws = new WebSocket("ws://localhost:8765");
+
+      ws.onmessage = function (event) {
+        const data = JSON.parse(event.data);
+        if (data.type === "status") {
+          updateStatus(data.continent, data.timecode);
+          addEntry(
+            "encoder-input",
+            `Continent: ${data.continent}, Time Period: ${data.timecode}`
+          );
+        } else if (data.type === "response") {
+          addEntry("ai-response", data.text);
+        }
+      };
+
+      ws.onerror = function (error) {
+        console.error("WebSocket error:", error);
+        // Try to reconnect after error
+        setTimeout(() => {
+          window.location.reload();
+        }, 1000);
+      };
+
+      ws.onclose = function () {
+        console.log("WebSocket connection closed");
+        // Try to reconnect when connection is closed
+        setTimeout(() => {
+          window.location.reload();
+        }, 1000);
+      };
+    </script>
+  </body>
+</html>
