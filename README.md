@@ -41,3 +41,39 @@ OPENAI_API_KEY=sk-proj-xxxxxxxxxxxxxxxxxx...
 ## Instructions for running JavaScript code
 
 For chat and image api, I included an html page in each folder that performs same functions as python samples, linking corresponding javascript code for your reference.
+
+## Notes on setting up dev environment
+
+In parent directory (llo-sample-code), activate virtual environment
+
+```
+python -m venv venv
+.\venv\Scripts\activate
+```
+
+Install the required packages
+
+```
+pip install openai python-dotenv
+```
+
+OR
+
+```
+pip install openai
+pip install dotenv
+pip install pyserial
+pip install websockets
+```
+
+Go to specific directory and run the script
+
+```
+python chat_completion.py
+```
+
+To exit the virtual environment:
+
+```
+deactivate
+```
