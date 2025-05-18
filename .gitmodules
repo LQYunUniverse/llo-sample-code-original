@@ -1,0 +1,3 @@
+[submodule "arduino_communication/Real-Time-Latent-Consistency-Model"]
+	path = arduino_communication/Real-Time-Latent-Consistency-Model
+	url = https://github.com/radames/Real-Time-Latent-Consistency-Model.git

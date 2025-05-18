@@ -1,0 +1,19 @@
+version: "3.8"
+
+services:
+  lcom:
+    build: ./Real-Time-Latent-Consistency-Model
+    ports:
+      - "7860:7860"
+    volumes:
+      - ./Real-Time-Latent-Consistency-Model:/app
+
+  backend:
+    build: .
+    command: python chat_completion.py
+    volumes:
+      - .:/app
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    depends_on:
+      - lcom

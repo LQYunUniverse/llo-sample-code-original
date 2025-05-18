@@ -20,7 +20,7 @@ if (not os.path.isfile(".env")):
 	quit()
 
 load_dotenv()
-client = OpenAI()
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # Initialize serial connection
 try:
@@ -224,6 +224,48 @@ async def main():
 					# Get completion and send it back to Arduino
 					response = chat_completion_with_developer(developer_prompt, user_prompt)
 					print(f"AI Response: {response}")
+
+					# Send prompt to LCoM model
+					import requests
+					try:
+						print("Sending prompt to LCoM model...")
+						lcom_response = requests.post(
+							"https://mkrystal-real-time-latent-consistency-model.hf.space/api/predict/",
+							json={
+								"fn_index": 0,
+								"data": [response],
+								"session_hash": "abc123"
+							},
+							headers={
+								"Content-Type": "application/json"
+							}
+						)
+						if lcom_response.ok:
+							print("LCoM model triggered successfully.")
+							result = lcom_response.json()
+							print("Generated image URL:", result.get('data', []))
+						else:
+							print("Failed to get response from LCoM:", lcom_response.text)
+							print("Trying alternative endpoint...")
+							# Try alternative endpoint
+							alt_response = requests.post(
+								"https://mkrystal-real-time-latent-consistency-model.hf.space/run/predict/",
+								json={
+									"data": [response]
+								},
+								headers={
+									"Content-Type": "application/json"
+								}
+							)
+							if alt_response.ok:
+								print("Alternative endpoint worked!")
+								result = alt_response.json()
+								print("Generated image URL:", result.get('data', []))
+							else:
+								print("Alternative endpoint also failed:", alt_response.text)
+					except Exception as e:
+						print("Failed to send prompt to LCoM:", e)
+
 					ser.write((response + '\n').encode('utf-8'))
 					
 					# Send response to web interface
